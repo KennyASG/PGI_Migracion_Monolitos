@@ -1,0 +1,6 @@
+@PGI_Migracion_Monolitos_HostAddress = http://localhost:5232
+
+GET {{PGI_Migracion_Monolitos_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
