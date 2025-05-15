@@ -36,11 +36,13 @@ public class AnalizadorDependenciasService : IAnalizadorDependenciasService
 
             var semanticModel = compilacion.GetSemanticModel(syntaxTree);
             var clases = root.DescendantNodes().OfType<ClassDeclarationSyntax>();
+            var nombreProyecto = Path.GetFileNameWithoutExtension(rutaProyecto);
 
             foreach (var clase in clases)
             {
                 var origen = clase.Identifier.Text;
-                var nsOrigen = clase.FirstAncestorOrSelf<NamespaceDeclarationSyntax>()?.Name.ToString();
+                var nsOrigen = semanticModel.GetDeclaredSymbol(clase)?.ContainingNamespace?.ToDisplayString();
+
 
                 var identificadores = clase.DescendantNodes().OfType<IdentifierNameSyntax>();
 
@@ -61,7 +63,8 @@ public class AnalizadorDependenciasService : IAnalizadorDependenciasService
                                 ClaseDependencia = destino,
                                 NamespaceOrigen = nsOrigen,
                                 NamespaceDependencia = nsDestino,
-                                FechaAnalisis = DateTime.UtcNow
+                                FechaAnalisis = DateTime.UtcNow,
+                                ProyectoAnalizado = nombreProyecto
                             });
                         }
                     }

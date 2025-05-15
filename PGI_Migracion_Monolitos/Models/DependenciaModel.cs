@@ -19,5 +19,8 @@ namespace PGI_Migracion_Monolitos.Models
         public string? NamespaceDependencia { get; set; }
 
         public DateTime FechaAnalisis { get; set; } = DateTime.UtcNow;
+
+        public string ProyectoAnalizado { get; set; } = string.Empty;
+
     }
 }
