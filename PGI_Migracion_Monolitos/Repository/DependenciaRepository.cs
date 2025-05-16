@@ -46,5 +46,13 @@ public class DependenciaRepository : IDependenciaRepository
 
         return await query.ToListAsync();
     }
+    
+    public async Task<List<DependenciaModel>> ObtenerPorProyectoAsync(string proyecto)
+    {
+        return await _context.Dependencias
+            .Where(d => d.ProyectoAnalizado == proyecto)
+            .ToListAsync();
+    }
+
 
 }

@@ -11,5 +11,6 @@ public interface IDependenciaRepository
         string? nsOrigen,
         string? nsDependencia,
         string? proyecto);
+    Task<List<DependenciaModel>> ObtenerPorProyectoAsync(string proyecto);
 
 }
