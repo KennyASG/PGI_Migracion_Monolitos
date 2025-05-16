@@ -18,7 +18,19 @@ builder.Services.AddScoped<IAnalizadorDependenciasService, AnalizadorDependencia
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
+    });
+});
+
 var app = builder.Build();
+
 
 // Configura el pipeline HTTP
 if (app.Environment.IsDevelopment())
@@ -29,6 +41,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
+app.UseCors();
 app.MapControllers();
 
 app.Run();
