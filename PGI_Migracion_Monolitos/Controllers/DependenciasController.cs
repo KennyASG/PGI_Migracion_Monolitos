@@ -51,8 +51,9 @@ namespace PGI_Migracion_Monolitos.Controllers
 
             // Ajuste de nombres: nodes y links (no edges)
             var nodes = grafoDto.Nodes
-                .Select(n => new { id = n.Id, label = n.Label })
+                .Select(n => new { id = n.Id, label = n.Label, tipo = n.Tipo })
                 .ToList();
+
 
             var links = grafoDto.Links
                 .Select(l => new { source = l.Source, target = l.Target })
@@ -64,5 +65,16 @@ namespace PGI_Migracion_Monolitos.Controllers
                 links
             });
         }
+        
+        [HttpGet("tabla")]
+        public async Task<IActionResult> ObtenerTabla([FromQuery] string proyecto)
+        {
+            if (string.IsNullOrWhiteSpace(proyecto))
+                return BadRequest("Se requiere un nombre de proyecto.");
+
+            var resultado = await _analizador.ObtenerListaDependenciasAsync(proyecto);
+            return Ok(resultado);
+        }
+
     }
 }

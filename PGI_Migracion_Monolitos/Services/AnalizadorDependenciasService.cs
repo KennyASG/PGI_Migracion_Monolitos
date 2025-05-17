@@ -80,6 +80,33 @@ namespace PGI_Migracion_Monolitos.Services
                             var destino = tipo.Name;
                             var nsDestino = tipo.ContainingNamespace?.ToString();
 
+                            var ignorar = new[]
+                            {
+                                "Object", "Task", "T", "Controller", "IActionResult", "String", "Int32", "List", "IEnumerable"
+                            };
+
+                            // ❌ Ignora tipos irrelevantes
+                            if (string.IsNullOrWhiteSpace(destino) || ignorar.Contains(destino))
+                                continue;
+
+                            // ❌ Ignora tipos del ensamblado System.*
+                            if (tipo.ContainingAssembly?.Name.StartsWith("System") == true)
+                                continue;
+
+                            // ❌ Ignora clases que vienen de namespaces externos conocidos
+                            if (!string.IsNullOrWhiteSpace(nsDestino) && (
+                                    nsDestino.StartsWith("System") ||
+                                    nsDestino.StartsWith("Microsoft") ||
+                                    nsDestino.StartsWith("MongoDB") ||
+                                    nsDestino.StartsWith("Newtonsoft") ||
+                                    nsDestino.StartsWith("Swashbuckle") ||
+                                    nsDestino.StartsWith("Serilog")
+                                ))
+                            {
+                                continue;
+                            }
+
+                            // ✅ Solo agrega si es una dependencia real y útil
                             if (destino != origen)
                             {
                                 dependencias.Add(new DependenciaModel
@@ -93,7 +120,9 @@ namespace PGI_Migracion_Monolitos.Services
                                 });
                             }
                         }
+
                     }
+
                 }
             }
 
@@ -122,8 +151,17 @@ namespace PGI_Migracion_Monolitos.Services
                 .Distinct();
 
             var nodes = allIds
-                .Select(id => new NodoDto { Id = id, Label = id })
+                .Select(id => new NodoDto
+                {
+                    Id = id,
+                    Label = id,
+                    Tipo = id.EndsWith("Controller") ? "Controller" :
+                        id.Contains("Service") ? "Service" :
+                        (id.StartsWith("I") && char.IsUpper(id[1])) ? "Interface" :
+                        "Model"
+                })
                 .ToList();
+
 
             // 4) Construye lista de enlaces únicos (links)
             var links = validRows
@@ -138,8 +176,46 @@ namespace PGI_Migracion_Monolitos.Services
                 Links = links
             };
         }
-    }
 
+        public async Task<List<DependenciaPlanoDto>> ObtenerListaDependenciasAsync(string proyecto)
+        {
+            var rows = await _repo.ObtenerPorProyectoAsync(proyecto);
+
+            var lista = rows
+                .Where(r => !string.IsNullOrWhiteSpace(r.ClaseOrigen) && !string.IsNullOrWhiteSpace(r.ClaseDependencia))
+                .Select(r => new DependenciaPlanoDto
+                {
+                    Origen = r.ClaseOrigen,
+                    TipoOrigen = ClasificarTipo(r.ClaseOrigen),
+                    Destino = r.ClaseDependencia,
+                    TipoDestino = ClasificarTipo(r.ClaseDependencia)
+                })
+                .DistinctBy(d => new { d.Origen, d.Destino }) 
+                .ToList();
+
+
+            return lista;
+        }
+
+        
+        private string ClasificarTipo(string nombre)
+        {
+            if (nombre.EndsWith("Controller")) return "Controller";
+            if (nombre.Contains("Service")) return "Service";
+            if (nombre.StartsWith("I") && char.IsUpper(nombre[1])) return "Interface";
+            return "Model";
+        }
+    }
+    
+    
+    public class DependenciaPlanoDto
+    {
+        public string Origen { get; set; }
+        public string TipoOrigen { get; set; }
+        public string Destino { get; set; }
+        public string TipoDestino { get; set; }
+    }
+    
     /// <summary>
     /// DTO que representa todo el grafo para el frontend.
     /// </summary>
@@ -156,7 +232,9 @@ namespace PGI_Migracion_Monolitos.Services
     {
         public string Id { get; set; }
         public string Label { get; set; }
+        public string Tipo { get; set; }  // ← NUEVO
     }
+
 
     /// <summary>
     /// DTO para cada arista del grafo.
@@ -166,4 +244,8 @@ namespace PGI_Migracion_Monolitos.Services
         public string Source { get; set; }
         public string Target { get; set; }
     }
+    
+    
+    
+    
 }

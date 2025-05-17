@@ -14,5 +14,7 @@ namespace PGI_Migracion_Monolitos.Interfaces.Services
         /// Construye y retorna el grafo de dependencias (nodos + links) listo para el frontend.
         /// </summary>
         Task<GrafoDto> ObtenerGrafoAsync(string proyecto);
+        Task<List<DependenciaPlanoDto>> ObtenerListaDependenciasAsync(string proyecto);
+
     }
 }
