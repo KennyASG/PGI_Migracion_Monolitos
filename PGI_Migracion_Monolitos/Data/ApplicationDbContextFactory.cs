@@ -9,7 +9,7 @@ namespace PGI_Migracion_Monolitos.Data
     {
         public ApplicationDbContext CreateDbContext(string[] args)
         {
-            // Cargar configuración desde appsettings.Development.json
+            
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json")

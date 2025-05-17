@@ -23,19 +23,17 @@ namespace PGI_Migracion_Monolitos.Services
         {
             _repo = repo;
         }
-
-        /// <summary>
-        /// Analiza todo el proyecto (ruta o ZIP) con Roslyn y guarda las dependencias en BD.
-        /// </summary>
+        /// Analiza el proyecto (ZIP) con Roslyn y guarda las dependencias en BD.
+       
         public async Task AnalizarDependenciasAsync(string rutaProyecto)
         {
-            // Registra MSBuild para poder cargar el Workspace
+           
             StartupRoslyn.RegistrarMSBuild();
 
             var rutaReal = rutaProyecto;
             if (rutaProyecto.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             {
-                // Descomprime ZIP a carpeta temporal
+                // Descomprime ZIP a la carpeta temporal
                 var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
                 ZipFile.ExtractToDirectory(rutaProyecto, tmp);
 
@@ -85,15 +83,15 @@ namespace PGI_Migracion_Monolitos.Services
                                 "Object", "Task", "T", "Controller", "IActionResult", "String", "Int32", "List", "IEnumerable"
                             };
 
-                            // ❌ Ignora tipos irrelevantes
+                            //  Ignorar tipos irrelevantes
                             if (string.IsNullOrWhiteSpace(destino) || ignorar.Contains(destino))
                                 continue;
 
-                            // ❌ Ignora tipos del ensamblado System.*
+                            //  Ignorar tipos del ensamblado System.*
                             if (tipo.ContainingAssembly?.Name.StartsWith("System") == true)
                                 continue;
 
-                            // ❌ Ignora clases que vienen de namespaces externos conocidos
+                            //  Ignora clases que vienen de namespaces externos conocidos
                             if (!string.IsNullOrWhiteSpace(nsDestino) && (
                                     nsDestino.StartsWith("System") ||
                                     nsDestino.StartsWith("Microsoft") ||
@@ -106,7 +104,7 @@ namespace PGI_Migracion_Monolitos.Services
                                 continue;
                             }
 
-                            // ✅ Solo agrega si es una dependencia real y útil
+                            // Agregamos dependencias utiles
                             if (destino != origen)
                             {
                                 dependencias.Add(new DependenciaModel
@@ -125,26 +123,25 @@ namespace PGI_Migracion_Monolitos.Services
 
                 }
             }
-
-            // Guarda todas las filas en la base de datos
+            
             await _repo.GuardarDependenciasAsync(dependencias);
         }
 
-        /// <summary>
-        /// Construye y retorna el grafo listo para el frontend: nodos y aristas únicas y filtradas.
-        /// </summary>
+       
+        /// Construcción de grafo: nodos y aristas únicas y filtradas.
+      
         public async Task<GrafoDto> ObtenerGrafoAsync(string proyecto)
         {
-            // 1) Trae todas las dependencias almacenadas
+            //  Trae todas las dependencias almacenadas
             var rows = await _repo.ObtenerPorProyectoAsync(proyecto);
 
-            // 2) Filtra filas inválidas (origen o destino vacío)
+            //  Filtrado de filas inválidas (origen o destino vacío)
             var validRows = rows
                 .Where(r => !string.IsNullOrWhiteSpace(r.ClaseOrigen)
                          && !string.IsNullOrWhiteSpace(r.ClaseDependencia))
                 .ToList();
 
-            // 3) Construye lista de IDs únicos (nodos)
+            //  Construcción lista de IDs únicos (nodos)
             var allIds = validRows
                 .Select(r => r.ClaseOrigen)
                 .Concat(validRows.Select(r => r.ClaseDependencia))
@@ -163,7 +160,7 @@ namespace PGI_Migracion_Monolitos.Services
                 .ToList();
 
 
-            // 4) Construye lista de enlaces únicos (links)
+            //  Construcción de lista de enlaces únicos (links)
             var links = validRows
                 .Select(r => new { source = r.ClaseOrigen, target = r.ClaseDependencia })
                 .Distinct()
@@ -207,7 +204,7 @@ namespace PGI_Migracion_Monolitos.Services
         }
     }
     
-    
+    /// DTO que representa el el listado de dependencias para la tabla de dependencias
     public class DependenciaPlanoDto
     {
         public string Origen { get; set; }
@@ -216,29 +213,23 @@ namespace PGI_Migracion_Monolitos.Services
         public string TipoDestino { get; set; }
     }
     
-    /// <summary>
-    /// DTO que representa todo el grafo para el frontend.
-    /// </summary>
+    
+    /// DTO que representa el grafo para el frontend.
     public class GrafoDto
     {
         public List<NodoDto> Nodes { get; set; }
         public List<EnlaceDto> Links { get; set; }
     }
-
-    /// <summary>
+    
     /// DTO para cada nodo del grafo.
-    /// </summary>
     public class NodoDto
     {
         public string Id { get; set; }
         public string Label { get; set; }
         public string Tipo { get; set; }  // ← NUEVO
     }
-
-
-    /// <summary>
+    
     /// DTO para cada arista del grafo.
-    /// </summary>
     public class EnlaceDto
     {
         public string Source { get; set; }

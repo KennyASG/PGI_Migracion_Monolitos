@@ -11,7 +11,7 @@ namespace PGI_Migracion_Monolitos.Controllers
     public class DependenciasController : ControllerBase
     {
         private readonly IDependenciaRepository _repo;
-        private readonly IAnalizadorDependenciasService _analizador;  // <-- Inyecta el servicio
+        private readonly IAnalizadorDependenciasService _analizador;  
 
         public DependenciasController(
             IDependenciaRepository repo,
@@ -21,9 +21,7 @@ namespace PGI_Migracion_Monolitos.Controllers
             _analizador = analizador;
         }
 
-        /// <summary>
-        /// Endpoint original para filtrar dependencias.
-        /// </summary>
+       
         [HttpGet]
         public async Task<IActionResult> Obtener(
             [FromQuery] string? claseOrigen,
@@ -37,19 +35,17 @@ namespace PGI_Migracion_Monolitos.Controllers
             return Ok(resultado);
         }
 
-        /// <summary>
-        /// Devuelve el grafo de nodos y links listo para el frontend.
-        /// </summary>
+        
         [HttpGet("grafo")]
         public async Task<IActionResult> ObtenerGrafo([FromQuery] string proyecto)
         {
             if (string.IsNullOrWhiteSpace(proyecto))
                 return BadRequest("Debes proporcionar un nombre de proyecto.");
 
-            // Llama al servicio que hace el filtrado, deduplicación y mapeo
+            
             var grafoDto = await _analizador.ObtenerGrafoAsync(proyecto);
 
-            // Ajuste de nombres: nodes y links (no edges)
+            
             var nodes = grafoDto.Nodes
                 .Select(n => new { id = n.Id, label = n.Label, tipo = n.Tipo })
                 .ToList();

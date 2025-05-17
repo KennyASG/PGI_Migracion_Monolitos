@@ -12,7 +12,7 @@ namespace PGI_Migracion_Monolitos.Infrastructure
             {
                 MSBuildLocator.RegisterDefaults();
                 _registrado = true;
-                Console.WriteLine("✅ MSBuildLocator registrado correctamente.");
+                //Console.WriteLine("MSBuildLocator registrado correctamente.");
             }
         }
     }
