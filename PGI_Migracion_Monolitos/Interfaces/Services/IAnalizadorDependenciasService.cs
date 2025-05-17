@@ -1,6 +1,18 @@
-namespace PGI_Migracion_Monolitos.Interfaces.Services;
+using System.Threading.Tasks;
+using PGI_Migracion_Monolitos.Services;  // Para GrafoDto
 
-public interface IAnalizadorDependenciasService
+namespace PGI_Migracion_Monolitos.Interfaces.Services
 {
-    Task AnalizarDependenciasAsync(string rutaProyecto);
+    public interface IAnalizadorDependenciasService
+    {
+        /// <summary>
+        /// Analiza el proyecto con Roslyn y persiste en BD todas las dependencias encontradas.
+        /// </summary>
+        Task AnalizarDependenciasAsync(string rutaProyecto);
+
+        /// <summary>
+        /// Construye y retorna el grafo de dependencias (nodos + links) listo para el frontend.
+        /// </summary>
+        Task<GrafoDto> ObtenerGrafoAsync(string proyecto);
+    }
 }
