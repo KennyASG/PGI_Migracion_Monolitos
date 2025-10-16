@@ -8,3 +8,5 @@ riderModule.iml
 .vs/
 
 PGI_Migracion_Monolitos/Uploads/
+
+*.zip

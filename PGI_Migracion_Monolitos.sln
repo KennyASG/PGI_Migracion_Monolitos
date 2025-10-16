@@ -2,6 +2,8 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGI_Migracion_Monolitos", "PGI_Migracion_Monolitos\PGI_Migracion_Monolitos.csproj", "{795F7734-B0F2-4EEF-84AB-1F7298AD0987}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TransformadorService", "TransformadorService\TransformadorService.csproj", "{9EBD281F-AA0F-4B67-B7F8-7380F6977DE0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +14,9 @@ Global
 		{795F7734-B0F2-4EEF-84AB-1F7298AD0987}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{795F7734-B0F2-4EEF-84AB-1F7298AD0987}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{795F7734-B0F2-4EEF-84AB-1F7298AD0987}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9EBD281F-AA0F-4B67-B7F8-7380F6977DE0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9EBD281F-AA0F-4B67-B7F8-7380F6977DE0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9EBD281F-AA0F-4B67-B7F8-7380F6977DE0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9EBD281F-AA0F-4B67-B7F8-7380F6977DE0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
