@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using PGI_Migracion_Monolitos.Data;
 using PGI_Migracion_Monolitos.Interfaces.Repository;
@@ -6,6 +7,17 @@ using PGI_Migracion_Monolitos.Repository;
 using PGI_Migracion_Monolitos.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Aumentar el límite para requests grandes (ej: 200 MB)
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 200_000_000; // 200 MB
+});
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 200_000_000; // 200 MB
+});
 
 // Agrega los servicios al contenedor
 builder.Services.AddControllers();
@@ -24,13 +36,12 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         policy.AllowAnyOrigin()
-            .AllowAnyMethod()
-            .AllowAnyHeader();
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
 var app = builder.Build();
-
 
 // Configura el pipeline HTTP
 if (app.Environment.IsDevelopment())
