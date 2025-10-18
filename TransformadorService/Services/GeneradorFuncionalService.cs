@@ -246,6 +246,14 @@ public class EmailService
                     .Replace("MonolithPro.Modules.Orders", $"{nombreModulo}.Models")
                     .Replace("MonolithPro.Modules.Inventory", $"{nombreModulo}.Models");
 
+                // CRÍTICO: Agregar implementación de la interfaz
+                codigoLimpio = Regex.Replace(
+                    codigoLimpio,
+                    $@"public\s+class\s+{servicio.Nombre}\s*\r?\n",
+                    $"public class {servicio.Nombre} : {interfazNombre}\n",
+                    RegexOptions.Multiline
+                );
+
                 sb.AppendLine(codigoLimpio);
 
                 await File.WriteAllTextAsync(

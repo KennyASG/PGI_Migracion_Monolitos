@@ -10,3 +10,4 @@ riderModule.iml
 PGI_Migracion_Monolitos/Uploads/
 
 *.zip
+TransformadorService/MicroserviciosGenerados/
