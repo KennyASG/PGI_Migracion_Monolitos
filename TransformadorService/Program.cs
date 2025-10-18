@@ -4,6 +4,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<ITransformadorService, TransformadorService.Services.TransformadorService>();
 builder.Services.AddScoped<IAnalizadorCodigoService, AnalizadorCodigoService>();
+builder.Services.AddScoped<IGeneradorMicroservicioService, GeneradorMicroservicioService>();
 
 // Add services to the container.
 

@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using TransformadorService.Services;
-using TransformadorService.DTOs;
 
 namespace TransformadorService.Controllers
 {
@@ -8,21 +7,26 @@ namespace TransformadorService.Controllers
     [Route("api/[controller]")]
     public class TransformationController : ControllerBase
     {
-        private readonly ITransformadorService _transformador;
+        private readonly IAnalizadorCodigoService _analizador;
+        private readonly IGeneradorMicroservicioService _generador;
 
-        public TransformationController(ITransformadorService transformador)
+        public TransformationController(IAnalizadorCodigoService analizador, IGeneradorMicroservicioService generador)
         {
-            _transformador = transformador;
+            _analizador = analizador;
+            _generador = generador;
         }
 
-        [HttpPost("extract")]
-        public async Task<IActionResult> ExtraerModulo([FromBody] TransformRequest request)
+        [HttpPost("{proyecto}/{modulo}")]
+        public async Task<IActionResult> GenerarMicroservicio(string proyecto, string modulo)
         {
-            if (string.IsNullOrWhiteSpace(request.Proyecto) || string.IsNullOrWhiteSpace(request.Modulo))
-                return BadRequest("Debe especificar proyecto y módulo.");
+            var clases = await _analizador.AnalizarModuloAsync(proyecto, modulo);
+            var ruta = await _generador.GenerarMicroservicioAsync(proyecto, modulo, clases);
 
-            var resultado = await _transformador.GenerarMicroservicioAsync(request.Proyecto, request.Modulo);
-            return Ok(resultado);
+            return Ok(new
+            {
+                message = $"Microservicio '{modulo}' generado correctamente.",
+                rutaGenerada = ruta
+            });
         }
     }
 }
