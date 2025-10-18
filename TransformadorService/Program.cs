@@ -3,6 +3,8 @@ using TransformadorService.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<ITransformadorService, TransformadorService.Services.TransformadorService>();
+builder.Services.AddScoped<IAnalizadorCodigoService, AnalizadorCodigoService>();
+
 // Add services to the container.
 
 builder.Services.AddControllers();
