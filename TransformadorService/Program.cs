@@ -6,6 +6,9 @@ builder.Services.AddScoped<ITransformadorService, TransformadorService.Services.
 builder.Services.AddScoped<IAnalizadorCodigoService, AnalizadorCodigoService>();
 builder.Services.AddScoped<IGeneradorMicroservicioService, GeneradorMicroservicioService>();
 
+builder.Services.AddScoped<IAnalizadorFuncionalService, AnalizadorFuncionalService>();
+builder.Services.AddScoped<IGeneradorFuncionalService, GeneradorFuncionalService>();
+
 // Add services to the container.
 
 builder.Services.AddControllers();
