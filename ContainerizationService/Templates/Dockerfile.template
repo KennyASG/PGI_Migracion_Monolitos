@@ -1,0 +1,6 @@
+﻿namespace ContainerizationService.Templates
+{
+    public class Dockerfile
+    {
+    }
+}
