@@ -64,11 +64,18 @@ namespace TransformadorService.Services
 
                 foreach (var clase in clases)
                 {
-                    var esController = clase.Identifier.Text.EndsWith("Controller");
-                    var esService = clase.Identifier.Text.EndsWith("Service");
-                    
-                    // Si es modelo (no es Controller ni Service)
-                    if (!esController && !esService)
+                    var nombreClase = clase.Identifier.Text;
+                    var esController = nombreClase.EndsWith("Controller");
+                    var esService = nombreClase.EndsWith("Service");
+
+                    // *** CRÍTICO: Filtrar DTOs y clases de request/response ***
+                    var esDTO = nombreClase.EndsWith("Request") ||
+                                nombreClase.EndsWith("Response") ||
+                                nombreClase.EndsWith("Dto") ||
+                                nombreClase.EndsWith("DTO");
+
+                    // Si es modelo (no es Controller, ni Service, ni DTO)
+                    if (!esController && !esService && !esDTO)
                     {
                         var modelo = ExtraerModelo(clase, root);
                         if (!modelosEncontrados.ContainsKey(modelo.Nombre))
@@ -78,12 +85,18 @@ namespace TransformadorService.Services
                         continue;
                     }
 
+                    // Si es DTO, simplemente ignorarlo
+                    if (esDTO)
+                    {
+                        continue;
+                    }
+
                     var claseDto = new ClaseCompletaDto
                     {
-                        Nombre = clase.Identifier.Text,
+                        Nombre = nombreClase,
                         Namespace = root.DescendantNodes()
                             .OfType<NamespaceDeclarationSyntax>()
-                            .FirstOrDefault()?.Name.ToString() 
+                            .FirstOrDefault()?.Name.ToString()
                             ?? root.DescendantNodes()
                                 .OfType<FileScopedNamespaceDeclarationSyntax>()
                                 .FirstOrDefault()?.Name.ToString(),
@@ -209,7 +222,7 @@ namespace TransformadorService.Services
                     .ToList();
 
                 paramDto.EsFromBody = atributosParam.Any(a => a.Contains("FromBody"));
-                paramDto.EsFromRoute = atributosParam.Any(a => a.Contains("FromRoute")) 
+                paramDto.EsFromRoute = atributosParam.Any(a => a.Contains("FromRoute"))
                     || ruta?.Contains($"{{{parametro.Identifier.Text}}}") == true;
 
                 metodoDto.Parametros.Add(paramDto);

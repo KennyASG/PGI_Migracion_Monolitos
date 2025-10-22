@@ -1,0 +1,22 @@
+[
+  {
+    "Name": "Migracion completa",
+    "Projects": [
+      {
+        "Path": "PGI_Migracion_Monolitos\\PGI_Migracion_Monolitos.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      },
+      {
+        "Path": "TransformadorService\\TransformadorService.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      },
+      {
+        "Path": "ContainerizationService\\ContainerizationService.csproj",
+        "Action": "Start",
+        "DebugTarget": "http"
+      }
+    ]
+  }
+]

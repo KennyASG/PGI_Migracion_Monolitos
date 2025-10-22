@@ -20,8 +20,8 @@ namespace TransformadorService.Services
         }
 
         public async Task<string> GenerarMicroservicioFuncionalAsync(
-            string nombreProyecto, 
-            string nombreModulo, 
+            string nombreProyecto,
+            string nombreModulo,
             List<ClaseCompletaDto> clasesCompletas)
         {
             var outputRoot = Path.Combine(Directory.GetCurrentDirectory(), "MicroserviciosGenerados");
@@ -30,7 +30,7 @@ namespace TransformadorService.Services
             var microservicePath = Path.Combine(outputRoot, nombreModulo);
             if (Directory.Exists(microservicePath))
                 Directory.Delete(microservicePath, true);
-            
+
             Directory.CreateDirectory(microservicePath);
 
             // Separar modelos, servicios y controllers
@@ -38,23 +38,32 @@ namespace TransformadorService.Services
             var servicios = clasesCompletas.Where(c => c.Nombre.EndsWith("Service")).ToList();
             var controllers = clasesCompletas.Where(c => c.Nombre.EndsWith("Controller")).ToList();
 
-            // 1. Generar .csproj
-            await GenerarCsproj(microservicePath, nombreModulo);
+            // 1. Generar .csproj CON ENTITY FRAMEWORK
+            await GenerarCsprojConEF(microservicePath, nombreModulo);
 
-            // 2. Generar Shared (stubs para dependencias externas)
+            // 2. Generar DbContext
+            await GenerarDbContext(microservicePath, nombreModulo, modelos);
+
+            // 3. Generar Shared (stubs simplificados)
             await GenerarSharedStubs(microservicePath, nombreModulo);
 
-            // 3. Generar modelos
+            // 4. Generar modelos
             await GenerarModelos(microservicePath, modelos, nombreModulo);
 
-            // 4. Generar servicios
-            await GenerarServicios(microservicePath, servicios, nombreModulo);
+            // 5. Generar servicios CON EF CORE
+            await GenerarServiciosConEF(microservicePath, servicios, nombreModulo);
 
-            // 5. Generar controllers
+            // 6. Generar controllers
             await GenerarControllers(microservicePath, controllers, nombreModulo);
 
-            // 6. Generar Program.cs
-            await GenerarProgramCs(microservicePath, servicios, controllers, nombreModulo);
+            // 7. Generar Program.cs CON EF CORE
+            await GenerarProgramCsConEF(microservicePath, servicios, controllers, nombreModulo);
+
+            // 8. Generar appsettings.json con variables de entorno
+            await GenerarAppSettings(microservicePath);
+
+            // 9. Generar Dockerfile
+            await GenerarDockerfile(microservicePath, nombreModulo);
 
             return microservicePath;
         }
@@ -88,47 +97,88 @@ namespace TransformadorService.Services
             return modelos;
         }
 
-        private async Task GenerarCsproj(string path, string nombreModulo)
+        private async Task GenerarCsprojConEF(string path, string nombreModulo)
         {
             var csproj = $@"<Project Sdk=""Microsoft.NET.Sdk.Web"">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include=""Swashbuckle.AspNetCore"" Version=""6.5.0"" />
+    <PackageReference Include=""Microsoft.EntityFrameworkCore.SqlServer"" Version=""8.0.0"" />
+    <PackageReference Include=""Microsoft.EntityFrameworkCore.Design"" Version=""8.0.0"">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 </Project>";
 
             await File.WriteAllTextAsync(Path.Combine(path, $"{nombreModulo}.csproj"), csproj);
         }
 
+        private async Task GenerarDbContext(string path, string nombreModulo, Dictionary<string, ModeloDto> modelos)
+        {
+            var dataPath = Path.Combine(path, "Data");
+            Directory.CreateDirectory(dataPath);
+
+            var sb = new StringBuilder();
+            sb.AppendLine("using Microsoft.EntityFrameworkCore;");
+            sb.AppendLine($"using {nombreModulo}.Models;");
+            sb.AppendLine();
+            sb.AppendLine($"namespace {nombreModulo}.Data;");
+            sb.AppendLine();
+            sb.AppendLine($"public class {nombreModulo}DbContext : DbContext");
+            sb.AppendLine("{");
+            sb.AppendLine($"    public {nombreModulo}DbContext(DbContextOptions<{nombreModulo}DbContext> options) : base(options)");
+            sb.AppendLine("    {");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+
+            // DbSets para cada modelo
+            foreach (var modelo in modelos.Values)
+            {
+                sb.AppendLine($"    public DbSet<{modelo.Nombre}> {modelo.Nombre}s {{ get; set; }}");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("    protected override void OnModelCreating(ModelBuilder modelBuilder)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        base.OnModelCreating(modelBuilder);");
+            sb.AppendLine();
+
+            // Configuración de cada entidad
+            foreach (var modelo in modelos.Values)
+            {
+                sb.AppendLine($"        modelBuilder.Entity<{modelo.Nombre}>(entity =>");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            entity.ToTable(\"{modelo.Nombre}s\");");
+                sb.AppendLine("            entity.HasKey(e => e.Id);");
+
+                // Propiedades string con max length
+                var propiedadesString = modelo.Propiedades?.Where(p => p.Tipo == "string" && p.Nombre != "Id") ?? new List<PropiedadDto>();
+                foreach (var prop in propiedadesString)
+                {
+                    sb.AppendLine($"            entity.Property(e => e.{prop.Nombre}).HasMaxLength(200);");
+                }
+
+                sb.AppendLine("        });");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+
+            await File.WriteAllTextAsync(Path.Combine(dataPath, $"{nombreModulo}DbContext.cs"), sb.ToString());
+        }
+
         private async Task GenerarSharedStubs(string path, string nombreModulo)
         {
             var sharedPath = Path.Combine(path, "Shared");
             Directory.CreateDirectory(sharedPath);
-
-            // DatabaseContext stub
-            var dbContext = $@"namespace {nombreModulo}.Shared;
-
-public class DatabaseContext
-{{
-    public void SaveChanges()
-    {{
-        // Stub: Simulación de guardado en BD
-        Console.WriteLine(""[STUB] DatabaseContext.SaveChanges() called"");
-    }}
-
-    public T FindById<T>(int id, List<T> collection) where T : class
-    {{
-        Console.WriteLine($""[STUB] DatabaseContext.FindById<{{typeof(T).Name}}>({{id}}) called"");
-        return collection.ElementAtOrDefault(id - 1);
-    }}
-}}";
-
-            await File.WriteAllTextAsync(Path.Combine(sharedPath, "DatabaseContext.cs"), dbContext);
 
             // LoggerService stub
             var logger = $@"namespace {nombreModulo}.Shared;
@@ -137,17 +187,17 @@ public class LoggerService
 {{
     public void Log(string message)
     {{
-        Console.WriteLine($""[LOG] {{message}}"");
+        Console.WriteLine($""[{{DateTime.Now:yyyy-MM-dd HH:mm:ss}}] LOG: {{message}}"");
     }}
 
     public void LogError(string message)
     {{
-        Console.WriteLine($""[ERROR] {{message}}"");
+        Console.WriteLine($""[{{DateTime.Now:yyyy-MM-dd HH:mm:ss}}] ERROR: {{message}}"");
     }}
 
     public void LogWarning(string message)
     {{
-        Console.WriteLine($""[WARNING] {{message}}"");
+        Console.WriteLine($""[{{DateTime.Now:yyyy-MM-dd HH:mm:ss}}] WARNING: {{message}}"");
     }}
 }}";
 
@@ -199,13 +249,13 @@ public class EmailService
                 sb.AppendLine(modelo.CodigoCompleto);
 
                 await File.WriteAllTextAsync(
-                    Path.Combine(modelosPath, $"{modelo.Nombre}.cs"), 
+                    Path.Combine(modelosPath, $"{modelo.Nombre}.cs"),
                     sb.ToString()
                 );
             }
         }
 
-        private async Task GenerarServicios(string path, List<ClaseCompletaDto> servicios, string nombreModulo)
+        private async Task GenerarServiciosConEF(string path, List<ClaseCompletaDto> servicios, string nombreModulo)
         {
             if (!servicios.Any()) return;
 
@@ -215,10 +265,12 @@ public class EmailService
             foreach (var servicio in servicios)
             {
                 var sb = new StringBuilder();
-                
-                // Agregar usings básicos
+
+                // Agregar usings
                 sb.AppendLine($"using {nombreModulo}.Models;");
                 sb.AppendLine($"using {nombreModulo}.Shared;");
+                sb.AppendLine($"using {nombreModulo}.Data;");
+                sb.AppendLine("using Microsoft.EntityFrameworkCore;");
                 sb.AppendLine();
 
                 // Namespace
@@ -229,24 +281,31 @@ public class EmailService
                 var interfazNombre = $"I{servicio.Nombre}";
                 sb.AppendLine($"public interface {interfazNombre}");
                 sb.AppendLine("{");
-                
+
                 foreach (var metodo in servicio.Metodos)
                 {
                     var parametros = string.Join(", ", metodo.Parametros.Select(p => $"{p.Tipo} {p.Nombre}"));
                     sb.AppendLine($"    {metodo.TipoRetorno} {metodo.Nombre}({parametros});");
                 }
-                
+
                 sb.AppendLine("}");
                 sb.AppendLine();
 
-                // Copiar la clase completa y reemplazar namespaces
+                // Copiar la clase completa y reemplazar referencias
                 var codigoLimpio = servicio.CodigoClaseCompleta
                     .Replace("MonolithPro.Shared", $"{nombreModulo}.Shared")
                     .Replace("MonolithPro.Modules.Users", $"{nombreModulo}.Models")
                     .Replace("MonolithPro.Modules.Orders", $"{nombreModulo}.Models")
-                    .Replace("MonolithPro.Modules.Inventory", $"{nombreModulo}.Models");
+                    .Replace("MonolithPro.Modules.Inventory", $"{nombreModulo}.Models")
+                    .Replace("MonolithPro.Data", $"{nombreModulo}.Data");
 
-                // CRÍTICO: Agregar implementación de la interfaz
+                // Reemplazar referencias al DbContext del monolito por el del microservicio
+                codigoLimpio = codigoLimpio.Replace(
+                    "MonolithProDbContext",
+                    $"{nombreModulo}DbContext"
+                );
+
+                // Agregar implementación de la interfaz
                 codigoLimpio = Regex.Replace(
                     codigoLimpio,
                     $@"public\s+class\s+{servicio.Nombre}\s*\r?\n",
@@ -273,7 +332,7 @@ public class EmailService
             foreach (var controller in controllers)
             {
                 var sb = new StringBuilder();
-                
+
                 // Usings
                 sb.AppendLine("using Microsoft.AspNetCore.Mvc;");
                 sb.AppendLine($"using {nombreModulo}.Services;");
@@ -290,14 +349,16 @@ public class EmailService
                 sb.AppendLine($"public class {controller.Nombre} : ControllerBase");
                 sb.AppendLine("{");
 
-                // Inyectar dependencias (solo servicios del mismo módulo)
+                // Inyectar dependencias
                 var serviciosModulo = controller.DependenciasConstructor
-                    .Where(d => d.Contains("Service") && !d.Contains("Logger") && !d.Contains("Email") && !d.Contains("Database"))
+                    .Where(d => d.Contains("Service") && !d.Contains("Logger") && !d.Contains("Email"))
                     .ToList();
 
                 foreach (var dep in serviciosModulo)
                 {
-                    var depLimpia = dep.Replace("MonolithPro.Modules.Users.", "").Replace("MonolithPro.Modules.Orders.", "").Replace("MonolithPro.Modules.Inventory.", "");
+                    var depLimpia = dep.Replace("MonolithPro.Modules.Users.", "")
+                        .Replace("MonolithPro.Modules.Orders.", "")
+                        .Replace("MonolithPro.Modules.Inventory.", "");
                     var nombreCampo = $"_{char.ToLower(depLimpia[0])}{depLimpia.Substring(1)}";
                     sb.AppendLine($"    private readonly I{depLimpia} {nombreCampo};");
                 }
@@ -306,18 +367,22 @@ public class EmailService
                 // Constructor
                 if (serviciosModulo.Any())
                 {
-                    var parametrosConstructor = string.Join(", ", 
+                    var parametrosConstructor = string.Join(", ",
                         serviciosModulo.Select(d => {
-                            var depLimpia = d.Replace("MonolithPro.Modules.Users.", "").Replace("MonolithPro.Modules.Orders.", "").Replace("MonolithPro.Modules.Inventory.", "");
+                            var depLimpia = d.Replace("MonolithPro.Modules.Users.", "")
+                                .Replace("MonolithPro.Modules.Orders.", "")
+                                .Replace("MonolithPro.Modules.Inventory.", "");
                             return $"I{depLimpia} {char.ToLower(depLimpia[0])}{depLimpia.Substring(1)}";
                         })
                     );
-                    
+
                     sb.AppendLine($"    public {controller.Nombre}({parametrosConstructor})");
                     sb.AppendLine("    {");
                     foreach (var dep in serviciosModulo)
                     {
-                        var depLimpia = dep.Replace("MonolithPro.Modules.Users.", "").Replace("MonolithPro.Modules.Orders.", "").Replace("MonolithPro.Modules.Inventory.", "");
+                        var depLimpia = dep.Replace("MonolithPro.Modules.Users.", "")
+                            .Replace("MonolithPro.Modules.Orders.", "")
+                            .Replace("MonolithPro.Modules.Inventory.", "");
                         var nombreParam = $"{char.ToLower(depLimpia[0])}{depLimpia.Substring(1)}";
                         var nombreCampo = $"_{nombreParam}";
                         sb.AppendLine($"        {nombreCampo} = {nombreParam};");
@@ -331,15 +396,13 @@ public class EmailService
                 {
                     if (metodo.HttpVerb == null) continue;
 
-                    // Normalizar atributo HTTP
                     var verb = NormalizarAtributoHttp(metodo.HttpVerb);
-                    
+
                     if (!string.IsNullOrEmpty(metodo.Ruta))
                         sb.AppendLine($"    [Http{verb}(\"{metodo.Ruta}\")]");
                     else
                         sb.AppendLine($"    [Http{verb}]");
 
-                    // Firma del método
                     var parametros = string.Join(", ", metodo.Parametros.Select(p =>
                     {
                         var atributo = p.EsFromBody ? "[FromBody] " : (p.EsFromRoute ? "" : "");
@@ -347,8 +410,7 @@ public class EmailService
                     }));
 
                     sb.AppendLine($"    public {metodo.TipoRetorno} {metodo.Nombre}({parametros})");
-                    
-                    // Cuerpo del método - copiar tal cual
+
                     if (!string.IsNullOrEmpty(metodo.CodigoCompleto))
                     {
                         sb.AppendLine("    {");
@@ -361,11 +423,58 @@ public class EmailService
                         sb.AppendLine($"        return Ok(new {{ message = \"{metodo.Nombre} ejecutado\" }});");
                         sb.AppendLine("    }");
                     }
-                    
+
                     sb.AppendLine();
                 }
 
                 sb.AppendLine("}");
+
+                // *** GENERAR DTOs INLINE AL FINAL DEL ARCHIVO ***
+                var dtosGenerados = new HashSet<string>();
+
+                foreach (var metodo in controller.Metodos)
+                {
+                    foreach (var parametro in metodo.Parametros)
+                    {
+                        var tipoDato = parametro.Tipo;
+
+                        // Detectar si es un DTO (Request, Response, Dto)
+                        if ((tipoDato.EndsWith("Request") || tipoDato.EndsWith("Response") || tipoDato.EndsWith("Dto"))
+                            && !dtosGenerados.Contains(tipoDato))
+                        {
+                            dtosGenerados.Add(tipoDato);
+
+                            // Generar DTO simple
+                            sb.AppendLine();
+                            sb.AppendLine($"public class {tipoDato}");
+                            sb.AppendLine("{");
+
+                            // Para Request típicos de Create/Update, agregar propiedades comunes
+                            if (tipoDato.Contains("User"))
+                            {
+                                sb.AppendLine("    public string Name { get; set; } = string.Empty;");
+                                sb.AppendLine("    public string Email { get; set; } = string.Empty;");
+                            }
+                            else if (tipoDato.Contains("Order"))
+                            {
+                                sb.AppendLine("    public int UserId { get; set; }");
+                                sb.AppendLine("    public int ProductId { get; set; }");
+                                sb.AppendLine("    public int Quantity { get; set; }");
+                            }
+                            else if (tipoDato.Contains("Product") || tipoDato.Contains("Inventory"))
+                            {
+                                sb.AppendLine("    public int Quantity { get; set; }");
+                            }
+                            else
+                            {
+                                // DTO genérico
+                                sb.AppendLine("    // TODO: Add properties based on your needs");
+                            }
+
+                            sb.AppendLine("}");
+                        }
+                    }
+                }
 
                 await File.WriteAllTextAsync(
                     Path.Combine(controllersPath, $"{controller.Nombre}.cs"),
@@ -374,17 +483,34 @@ public class EmailService
             }
         }
 
-        private async Task GenerarProgramCs(string path, List<ClaseCompletaDto> servicios, List<ClaseCompletaDto> controllers, string nombreModulo)
+        private async Task GenerarProgramCsConEF(string path, List<ClaseCompletaDto> servicios, List<ClaseCompletaDto> controllers, string nombreModulo)
         {
             var sb = new StringBuilder();
-            
+
             sb.AppendLine($"using {nombreModulo}.Services;");
             sb.AppendLine($"using {nombreModulo}.Shared;");
+            sb.AppendLine($"using {nombreModulo}.Data;");
+            sb.AppendLine("using Microsoft.EntityFrameworkCore;");
             sb.AppendLine();
             sb.AppendLine("var builder = WebApplication.CreateBuilder(args);");
             sb.AppendLine();
-            sb.AppendLine("// Registrar servicios compartidos (stubs)");
-            sb.AppendLine("builder.Services.AddSingleton<DatabaseContext>();");
+            sb.AppendLine("// *** CONFIGURACIÓN DE ENTITY FRAMEWORK CORE ***");
+            sb.AppendLine("// Connection string desde variable de entorno o appsettings.json");
+            sb.AppendLine("var connectionString = Environment.GetEnvironmentVariable(\"ConnectionStrings__DefaultConnection\")");
+            sb.AppendLine("    ?? builder.Configuration.GetConnectionString(\"DefaultConnection\");");
+            sb.AppendLine();
+            sb.AppendLine($"builder.Services.AddDbContext<{nombreModulo}DbContext>(options =>");
+            sb.AppendLine("    options.UseSqlServer(");
+            sb.AppendLine("        connectionString,");
+            sb.AppendLine("        sqlOptions => sqlOptions.EnableRetryOnFailure(");
+            sb.AppendLine("            maxRetryCount: 5,");
+            sb.AppendLine("            maxRetryDelay: TimeSpan.FromSeconds(30),");
+            sb.AppendLine("            errorNumbersToAdd: null");
+            sb.AppendLine("        )");
+            sb.AppendLine("    )");
+            sb.AppendLine(");");
+            sb.AppendLine();
+            sb.AppendLine("// Registrar servicios compartidos");
             sb.AppendLine("builder.Services.AddSingleton<LoggerService>();");
             sb.AppendLine("builder.Services.AddSingleton<EmailService>();");
             sb.AppendLine();
@@ -394,14 +520,50 @@ public class EmailService
             sb.AppendLine("builder.Services.AddSwaggerGen();");
             sb.AppendLine();
 
-            // Registrar servicios del módulo como Singleton para persistencia en memoria
+            // Registrar servicios del módulo como Scoped
             foreach (var servicio in servicios)
             {
-                sb.AppendLine($"builder.Services.AddSingleton<I{servicio.Nombre}, {servicio.Nombre}>();");
+                sb.AppendLine($"builder.Services.AddScoped<I{servicio.Nombre}, {servicio.Nombre}>();");
             }
 
             sb.AppendLine();
             sb.AppendLine("var app = builder.Build();");
+            sb.AppendLine();
+            sb.AppendLine("// *** APLICAR MIGRACIONES AUTOMÁTICAMENTE ***");
+            sb.AppendLine("using (var scope = app.Services.CreateScope())");
+            sb.AppendLine("{");
+            sb.AppendLine($"    var dbContext = scope.ServiceProvider.GetRequiredService<{nombreModulo}DbContext>();");
+            sb.AppendLine("    var logger = scope.ServiceProvider.GetRequiredService<LoggerService>();");
+            sb.AppendLine("    ");
+            sb.AppendLine("    try");
+            sb.AppendLine("    {");
+            sb.AppendLine("        logger.Log(\"Testing database connection...\");");
+            sb.AppendLine("        ");
+            sb.AppendLine("        if (dbContext.Database.CanConnect())");
+            sb.AppendLine("        {");
+            sb.AppendLine("            logger.Log(\"✅ Database connection successful\");");
+            sb.AppendLine("            ");
+            sb.AppendLine("            if (dbContext.Database.GetPendingMigrations().Any())");
+            sb.AppendLine("            {");
+            sb.AppendLine("                logger.Log(\"Applying migrations...\");");
+            sb.AppendLine("                dbContext.Database.Migrate();");
+            sb.AppendLine("                logger.Log(\"✅ Migrations applied\");");
+            sb.AppendLine("            }");
+            sb.AppendLine("            else");
+            sb.AppendLine("            {");
+            sb.AppendLine("                logger.Log(\"✅ Database up to date\");");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine("        else");
+            sb.AppendLine("        {");
+            sb.AppendLine("            logger.LogError(\"❌ Cannot connect to database\");");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("    catch (Exception ex)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        logger.LogError($\"❌ Database error: {ex.Message}\");");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
             sb.AppendLine();
             sb.AppendLine("if (app.Environment.IsDevelopment())");
             sb.AppendLine("{");
@@ -418,15 +580,73 @@ public class EmailService
             await File.WriteAllTextAsync(Path.Combine(path, "Program.cs"), sb.ToString());
         }
 
+        private async Task GenerarAppSettings(string path)
+        {
+            // appsettings.json para Docker (con host.docker.internal)
+            var appSettings = @"{
+  ""Logging"": {
+    ""LogLevel"": {
+      ""Default"": ""Information"",
+      ""Microsoft.AspNetCore"": ""Warning"",
+      ""Microsoft.EntityFrameworkCore.Database.Command"": ""Information""
+    }
+  },
+  ""AllowedHosts"": ""*"",
+  ""ConnectionStrings"": {
+    ""DefaultConnection"": ""Server=host.docker.internal\\SQLEXPRESS;Database=MonolithProDB;User Id=sa;Password=Pg1_Database;TrustServerCertificate=True;Encrypt=False;""
+  }
+}";
+
+            await File.WriteAllTextAsync(Path.Combine(path, "appsettings.json"), appSettings);
+
+            // appsettings.Development.json para desarrollo local
+            var appSettingsDev = @"{
+  ""Logging"": {
+    ""LogLevel"": {
+      ""Default"": ""Information"",
+      ""Microsoft.AspNetCore"": ""Warning"",
+      ""Microsoft.EntityFrameworkCore.Database.Command"": ""Information""
+    }
+  },
+  ""ConnectionStrings"": {
+    ""DefaultConnection"": ""Server=.\\SQLEXPRESS;Database=MonolithProDB;User Id=sa;Password=Pg1_Database;TrustServerCertificate=True;Encrypt=False;""
+  }
+}";
+
+            await File.WriteAllTextAsync(Path.Combine(path, "appsettings.Development.json"), appSettingsDev);
+        }
+
+        private async Task GenerarDockerfile(string path, string nombreModulo)
+        {
+            var dockerfile = $@"FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+EXPOSE 8080
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY [""{nombreModulo}.csproj"", ""./""]
+RUN dotnet restore ""{nombreModulo}.csproj""
+COPY . .
+RUN dotnet build ""{nombreModulo}.csproj"" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish ""{nombreModulo}.csproj"" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT [""dotnet"", ""{nombreModulo}.dll""]";
+
+            await File.WriteAllTextAsync(Path.Combine(path, "Dockerfile"), dockerfile);
+        }
+
         private string NormalizarAtributoHttp(string httpVerb)
         {
-            // Convertir Get, HttpGet, HTTP_GET, etc. a formato estándar
             var verb = httpVerb
                 .Replace("Http", "", StringComparison.OrdinalIgnoreCase)
                 .Replace("_", "")
                 .Trim();
 
-            // Capitalizar primera letra
             if (string.IsNullOrEmpty(verb)) return "Get";
             return char.ToUpper(verb[0]) + verb.Substring(1).ToLower();
         }
