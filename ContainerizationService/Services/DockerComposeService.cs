@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace ContainerizationService.Services
@@ -41,6 +42,9 @@ ENTRYPOINT [""dotnet"", ""{nombreModulo}.dll""]";
             var imageName = $"{serviceName}";
             var containerName = $"{serviceName}-container";
 
+            // Extraer connection string del appsettings.json
+            string connectionString = await ExtractConnectionStringAsync(rutaMicroservicio);
+
             var composeContent = $@"version: '3.8'
 
 services:
@@ -55,6 +59,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:{containerPort}
+      - ConnectionStrings__DefaultConnection={connectionString}
     restart: unless-stopped
     networks:
       - default
@@ -67,6 +72,46 @@ networks:
             await File.WriteAllTextAsync(composeFilePath, composeContent);
 
             return composeFilePath;
+        }
+
+        private async Task<string> ExtractConnectionStringAsync(string rutaMicroservicio)
+        {
+            try
+            {
+                var appsettingsPath = Path.Combine(rutaMicroservicio, "appsettings.json");
+
+                if (!File.Exists(appsettingsPath))
+                {
+                    Console.WriteLine($"⚠️ appsettings.json no encontrado en {rutaMicroservicio}, usando connection string por defecto");
+                    return GetDefaultConnectionString();
+                }
+
+                var jsonContent = await File.ReadAllTextAsync(appsettingsPath);
+                using var doc = JsonDocument.Parse(jsonContent);
+
+                if (doc.RootElement.TryGetProperty("ConnectionStrings", out var connStrings))
+                {
+                    if (connStrings.TryGetProperty("DefaultConnection", out var defaultConn))
+                    {
+                        var connectionString = defaultConn.GetString();
+                        Console.WriteLine($"✅ Connection string extraída exitosamente del appsettings.json");
+                        return connectionString ?? GetDefaultConnectionString();
+                    }
+                }
+
+                Console.WriteLine($"⚠️ ConnectionStrings:DefaultConnection no encontrada en appsettings.json, usando por defecto");
+                return GetDefaultConnectionString();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error extrayendo connection string: {ex.Message}");
+                return GetDefaultConnectionString();
+            }
+        }
+
+        private string GetDefaultConnectionString()
+        {
+            return "Server=host.docker.internal\\SQLEXPRESS;Database=MonolithProDB;User Id=sa;Password=Pg1_Database;TrustServerCertificate=True;Encrypt=False;";
         }
 
         public async Task<string> ComposeUpAsync(string composeFilePath)
