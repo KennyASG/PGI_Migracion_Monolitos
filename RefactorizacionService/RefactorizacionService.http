@@ -1,0 +1,6 @@
+@RefactorizacionService_HostAddress = http://localhost:5105
+
+GET {{RefactorizacionService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TransformadorService", "Tra
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ContainerizationService", "ContainerizationService\ContainerizationService.csproj", "{6751D701-1AA6-413B-AA52-086EC2291CF5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RefactorizacionService", "RefactorizacionService\RefactorizacionService.csproj", "{B8F566BE-2629-4781-B6D4-041AD82574DE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{6751D701-1AA6-413B-AA52-086EC2291CF5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6751D701-1AA6-413B-AA52-086EC2291CF5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6751D701-1AA6-413B-AA52-086EC2291CF5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B8F566BE-2629-4781-B6D4-041AD82574DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8F566BE-2629-4781-B6D4-041AD82574DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8F566BE-2629-4781-B6D4-041AD82574DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8F566BE-2629-4781-B6D4-041AD82574DE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
