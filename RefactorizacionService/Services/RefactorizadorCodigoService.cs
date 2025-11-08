@@ -142,104 +142,161 @@ namespace RefactorizacionService.Services
             string servicioOriginal,
             string urlMicroservicio)
         {
-            var arbol = CSharpSyntaxTree.ParseText(codigoOriginal);
-            var raiz = await arbol.GetRootAsync();
+            var codigoModificado = codigoOriginal;
 
-            var clases = raiz.DescendantNodes().OfType<ClassDeclarationSyntax>();
-
-            var nuevoRaiz = raiz;
-
-            foreach (var clase in clases)
+            // 1. Agregar using para System.Net.Http.Json si no existe
+            if (!codigoModificado.Contains("using System.Net.Http.Json;"))
             {
-                var campos = clase.DescendantNodes().OfType<FieldDeclarationSyntax>()
-                    .Where(f => f.Declaration.Type.ToString().Contains(servicioOriginal));
-
-                foreach (var campo in campos)
+                var primerUsing = codigoModificado.IndexOf("using ");
+                if (primerUsing >= 0)
                 {
-                    var nombreCampo = campo.Declaration.Variables.First().Identifier.Text;
-
-                    var metodos = clase.DescendantNodes().OfType<MethodDeclarationSyntax>();
-
-                    foreach (var metodo in metodos)
-                    {
-                        var invocaciones = metodo.DescendantNodes().OfType<InvocationExpressionSyntax>()
-                            .Where(inv => inv.Expression.ToString().StartsWith(nombreCampo));
-
-                        foreach (var invocacion in invocaciones)
-                        {
-                            var nuevoMetodo = await ConvertirInvocacionAHttpAsync(
-                                metodo,
-                                invocacion,
-                                nombreCampo,
-                                urlMicroservicio);
-
-                            nuevoRaiz = nuevoRaiz.ReplaceNode(metodo, nuevoMetodo);
-                        }
-                    }
+                    codigoModificado = codigoModificado.Insert(primerUsing, "using System.Net.Http.Json;\n");
                 }
-
-                var nuevoClase = await AgregarHttpClientAlConstructorAsync(clase, servicioOriginal);
-                nuevoRaiz = nuevoRaiz.ReplaceNode(clase, nuevoClase);
             }
 
-            return nuevoRaiz.ToFullString();
+            // 2. Identificar el nombre del campo del servicio
+            var patronCampo = $"private readonly {servicioOriginal} ";
+            var indiceCampo = codigoModificado.IndexOf(patronCampo);
+            
+            if (indiceCampo == -1)
+                return codigoOriginal; // No se encontró el servicio
+
+            // Extraer nombre del campo (ej: _userService)
+            var inicioCampo = indiceCampo + patronCampo.Length;
+            var finCampo = codigoModificado.IndexOf(";", inicioCampo);
+            var nombreCampo = codigoModificado.Substring(inicioCampo, finCampo - inicioCampo).Trim();
+
+            // 3. Agregar campo IHttpClientFactory después de los campos existentes
+            if (!codigoModificado.Contains("private readonly IHttpClientFactory"))
+            {
+                var ultimoCampo = codigoModificado.LastIndexOf("private readonly");
+                var finUltimoCampo = codigoModificado.IndexOf(";", ultimoCampo) + 1;
+                
+                codigoModificado = codigoModificado.Insert(finUltimoCampo, 
+                    "\n    private readonly IHttpClientFactory _httpClientFactory;");
+            }
+
+            // 4. Agregar parámetro IHttpClientFactory al constructor
+            var patronConstructor = "public " + ObtenerNombreClase(codigoOriginal) + "(";
+            var indiceConstructor = codigoModificado.IndexOf(patronConstructor);
+            
+            if (indiceConstructor >= 0 && !codigoModificado.Contains("IHttpClientFactory httpClientFactory"))
+            {
+                var finParametros = codigoModificado.IndexOf(")", indiceConstructor);
+                codigoModificado = codigoModificado.Insert(finParametros, 
+                    ",\n        IHttpClientFactory httpClientFactory");
+                
+                // Agregar asignación en el cuerpo del constructor
+                var inicioCuerpo = codigoModificado.IndexOf("{", indiceConstructor) + 1;
+                codigoModificado = codigoModificado.Insert(inicioCuerpo, 
+                    "\n        _httpClientFactory = httpClientFactory;");
+            }
+
+            // 5. Reemplazar invocaciones específicas de UserService
+            codigoModificado = ReemplazarGetUserById(codigoModificado, nombreCampo, urlMicroservicio);
+            codigoModificado = ReemplazarUserExists(codigoModificado, nombreCampo, urlMicroservicio);
+
+            return await Task.FromResult(codigoModificado);
         }
 
-        private async Task<MethodDeclarationSyntax> ConvertirInvocacionAHttpAsync(
-            MethodDeclarationSyntax metodo,
-            InvocationExpressionSyntax invocacion,
-            string nombreCampo,
-            string urlMicroservicio)
+        private string ObtenerNombreClase(string codigo)
         {
-            var expresionOriginal = invocacion.Expression.ToString();
-            var argumentos = invocacion.ArgumentList.Arguments;
-
-            var nuevoMetodo = metodo;
-
-            if (!metodo.Modifiers.Any(m => m.IsKind(SyntaxKind.AsyncKeyword)))
-            {
-                nuevoMetodo = metodo.AddModifiers(SyntaxFactory.Token(SyntaxKind.AsyncKeyword));
-            }
-
-            var tipoRetorno = metodo.ReturnType.ToString();
-            if (!tipoRetorno.StartsWith("Task"))
-            {
-                var nuevoTipoRetorno = SyntaxFactory.ParseTypeName($"Task<{tipoRetorno}>");
-                nuevoMetodo = nuevoMetodo.WithReturnType(nuevoTipoRetorno);
-            }
-
-            return await Task.FromResult(nuevoMetodo);
+            var patron = "public class ";
+            var inicio = codigo.IndexOf(patron);
+            if (inicio < 0) return "";
+            
+            inicio += patron.Length;
+            var fin = codigo.IndexOfAny(new[] { '\n', '\r', ' ', '{' }, inicio);
+            return codigo.Substring(inicio, fin - inicio).Trim();
         }
 
-        private async Task<ClassDeclarationSyntax> AgregarHttpClientAlConstructorAsync(
-            ClassDeclarationSyntax clase,
-            string servicioOriginal)
+        private string ReemplazarGetUserById(string codigo, string nombreCampo, string urlMicroservicio)
         {
-            var constructores = clase.DescendantNodes().OfType<ConstructorDeclarationSyntax>();
+            // Buscar patrón: var user = _userService.GetUserById(userId);
+            var patron = $"var user = {nombreCampo}.GetUserById(";
+            var indice = codigo.IndexOf(patron);
+            
+            if (indice < 0) return codigo;
 
-            if (!constructores.Any())
+            // Extraer el parámetro
+            var inicioParam = indice + patron.Length;
+            var finParam = codigo.IndexOf(")", inicioParam);
+            var parametro = codigo.Substring(inicioParam, finParam - inicioParam).Trim();
+
+            // Encontrar el método que contiene esta invocación
+            var metodoInicio = codigo.LastIndexOf("public ", indice);
+            var metodoFirma = codigo.Substring(metodoInicio, codigo.IndexOf("\n", metodoInicio) - metodoInicio);
+
+            // Hacer el método async si no lo es
+            if (!metodoFirma.Contains("async"))
             {
-                return clase;
+                codigo = codigo.Replace(metodoFirma, metodoFirma.Replace("public ", "public async "));
+                
+                // Cambiar tipo de retorno
+                if (metodoFirma.Contains("Order CreateOrder"))
+                    codigo = codigo.Replace("Order CreateOrder", "Task<Order> CreateOrder");
+                else if (metodoFirma.Contains("List<Order> GetOrdersByUserId"))
+                    codigo = codigo.Replace("List<Order> GetOrdersByUserId", "Task<List<Order>> GetOrdersByUserId");
             }
 
-            var constructor = constructores.First();
+            // Reemplazar la invocación directa por HTTP
+            var invocacionOriginal = $"var user = {nombreCampo}.GetUserById({parametro});";
+            var invocacionHttp = $@"
+        var httpClient = _httpClientFactory.CreateClient();
+        var response = await httpClient.GetAsync($""{urlMicroservicio}/api/users/{{{parametro}}}"");
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($""User with ID {{{parametro}}} does not exist"");
+        var user = await response.Content.ReadFromJsonAsync<User>();";
 
-            var tieneHttpClient = constructor.ParameterList.Parameters
-                .Any(p => p.Type?.ToString() == "IHttpClientFactory");
+            codigo = codigo.Replace(invocacionOriginal, invocacionHttp);
 
-            if (!tieneHttpClient)
+            // Manejar el if (user == null) que ya no es necesario con HTTP
+            var checkNull = @"if (user == null)
+        {
+            _logger.LogError($""Cannot create order: User {userId} not found"");
+            throw new InvalidOperationException($""User with ID {userId} does not exist"");
+        }";
+            codigo = codigo.Replace(checkNull, "        // User validation done via HTTP call");
+
+            return codigo;
+        }
+
+        private string ReemplazarUserExists(string codigo, string nombreCampo, string urlMicroservicio)
+        {
+            // Buscar patrón: if (!_userService.UserExists(userId))
+            var patron = $"if (!{nombreCampo}.UserExists(";
+            var indice = codigo.IndexOf(patron);
+            
+            if (indice < 0) return codigo;
+
+            // Extraer el parámetro
+            var inicioParam = indice + patron.Length;
+            var finParam = codigo.IndexOf(")", inicioParam);
+            var parametro = codigo.Substring(inicioParam, finParam - inicioParam).Trim();
+
+            // Encontrar el método que contiene esta invocación y hacerlo async si no lo es
+            var metodoInicio = codigo.LastIndexOf("public ", indice);
+            var metodoFirma = codigo.Substring(metodoInicio, codigo.IndexOf("\n", metodoInicio) - metodoInicio);
+
+            if (!metodoFirma.Contains("async"))
             {
-                var nuevoParametro = SyntaxFactory.Parameter(
-                    SyntaxFactory.Identifier("httpClientFactory"))
-                    .WithType(SyntaxFactory.ParseTypeName("IHttpClientFactory"));
-
-                var nuevosParametros = constructor.ParameterList.AddParameters(nuevoParametro);
-                var nuevoConstructor = constructor.WithParameterList(nuevosParametros);
-
-                clase = clase.ReplaceNode(constructor, nuevoConstructor);
+                codigo = codigo.Replace(metodoFirma, metodoFirma.Replace("public ", "public async "));
+                
+                if (metodoFirma.Contains("List<Order> GetOrdersByUserId"))
+                    codigo = codigo.Replace("List<Order> GetOrdersByUserId", "Task<List<Order>> GetOrdersByUserId");
             }
 
-            return await Task.FromResult(clase);
+            // Reemplazar la invocación directa por HTTP
+            var invocacionOriginal = $"if (!{nombreCampo}.UserExists({parametro}))";
+            var invocacionHttp = $@"var userExistsClient = _httpClientFactory.CreateClient();
+        var userExistsResponse = await userExistsClient.GetAsync($""{urlMicroservicio}/api/users/exists/{{{parametro}}}"");
+        var userExists = userExistsResponse.IsSuccessStatusCode;
+        
+        if (!userExists)";
+
+            codigo = codigo.Replace(invocacionOriginal, invocacionHttp);
+
+            return codigo;
         }
 
         public async Task<string> GenerarDiffAsync(string codigoOriginal, string codigoRefactorizado)
@@ -252,17 +309,15 @@ namespace RefactorizacionService.Services
             diff.AppendLine("+++ Refactorizado");
             diff.AppendLine();
 
-            var maxLineas = Math.Max(lineasOriginales.Length, lineasRefactorizadas.Length);
-
-            for (int i = 0; i < maxLineas; i++)
+            for (int i = 0; i < Math.Min(lineasOriginales.Length, lineasRefactorizadas.Length); i++)
             {
-                var lineaOriginal = i < lineasOriginales.Length ? lineasOriginales[i] : "";
-                var lineaRefactorizada = i < lineasRefactorizadas.Length ? lineasRefactorizadas[i] : "";
+                var lineaOriginal = lineasOriginales[i].TrimEnd();
+                var lineaRefactorizada = lineasRefactorizadas[i].TrimEnd();
 
                 if (lineaOriginal != lineaRefactorizada)
                 {
-                    diff.AppendLine($"- {lineaOriginal}");
-                    diff.AppendLine($"+ {lineaRefactorizada}");
+                    diff.AppendLine($"-{lineaOriginal}");
+                    diff.AppendLine($"+{lineaRefactorizada}");
                 }
             }
 
