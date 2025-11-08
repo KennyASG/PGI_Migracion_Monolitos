@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RefactorizacionService.Data;
-//using RefactorizacionService.Services;
+using RefactorizacionService.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,10 +9,13 @@ builder.Services.AddDbContext<RefactorizacionDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Services
-/*builder.Services.AddScoped<IAnalizadorDependenciasService, AnalizadorDependenciasService>();
+builder.Services.AddScoped<IAnalizadorDependenciasService, AnalizadorDependenciasService>();
 builder.Services.AddScoped<IGeneradorClientesHttpService, GeneradorClientesHttpService>();
 builder.Services.AddScoped<IRefactorizadorCodigoService, RefactorizadorCodigoService>();
-*/
+// Agrega estas líneas después de los servicios existentes
+builder.Services.AddScoped<IServiciosMigradosService, ServiciosMigradosService>();
+builder.Services.AddScoped<IRefactorizacionHistorialService, RefactorizacionHistorialService>();
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
