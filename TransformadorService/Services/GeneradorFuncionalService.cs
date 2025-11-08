@@ -593,7 +593,7 @@ public class EmailService
   },
   ""AllowedHosts"": ""*"",
   ""ConnectionStrings"": {
-    ""DefaultConnection"": ""Server=host.docker.internal\\SQLEXPRESS;Database=MonolithProDB;User Id=sa;Password=Pg1_Database;TrustServerCertificate=True;Encrypt=False;""
+    ""DefaultConnection"": ""Server=host.docker.internal\\localhost,1433;Database=MonolithProDB;User Id=sa;Password=Pg1_Database;TrustServerCertificate=True;Encrypt=False;""
   }
 }";
 
