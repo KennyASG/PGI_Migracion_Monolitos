@@ -1,3 +1,6 @@
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using RefactorizacionService.DTOs;
 using System.Text;
 
@@ -17,14 +20,12 @@ namespace RefactorizacionService.Services
             string urlMicroservicio, 
             string tipoCliente)
         {
-            var metodos = new List<string> 
-            { 
-                "GetAll", 
-                "GetById", 
-                "Create", 
-                "Update", 
-                "Delete" 
-            };
+            var metodos = await ExtraerMetodosDelControllerAsync(servicioDestino);
+
+            if (!metodos.Any())
+            {
+                throw new InvalidOperationException($"No se encontraron métodos en el controller de {servicioDestino}");
+            }
 
             var nombreInterfaz = $"I{servicioDestino}Client";
             var nombreImplementacion = $"{servicioDestino}Client";
@@ -32,7 +33,7 @@ namespace RefactorizacionService.Services
             var codigoInterfaz = await GenerarInterfazClienteAsync(servicioDestino, metodos);
             
             var codigoImplementacion = tipoCliente.ToLower() == "refit"
-                ? await GenerarImplementacionClienteRefitAsync(servicioDestino, urlMicroservicio)
+                ? await GenerarImplementacionClienteRefitAsync(servicioDestino, urlMicroservicio, metodos)
                 : await GenerarImplementacionClienteNativoAsync(servicioDestino, urlMicroservicio, metodos);
 
             return new GenerarClientesHttpResponseDto
@@ -42,16 +43,130 @@ namespace RefactorizacionService.Services
                 NombreClaseImplementacion = nombreImplementacion,
                 CodigoImplementacion = codigoImplementacion,
                 RutaArchivos = $"Clients/{servicioDestino}",
-                MetodosGenerados = metodos
+                MetodosGenerados = metodos.Select(m => m.NombreMetodo).ToList()
             };
+        }
+
+        private async Task<List<MetodoControllerDto>> ExtraerMetodosDelControllerAsync(string servicioDestino)
+        {
+            var metodos = new List<MetodoControllerDto>();
+
+            var microserviciosFolder = _configuration["Paths:MicroserviciosGenerados"];
+            var rutaController = Path.Combine(microserviciosFolder, servicioDestino, "Controllers", $"{servicioDestino}Controller.cs");
+
+            if (!File.Exists(rutaController))
+            {
+                throw new FileNotFoundException($"Controller no encontrado en: {rutaController}");
+            }
+
+            var codigoController = await File.ReadAllTextAsync(rutaController);
+            var arbol = CSharpSyntaxTree.ParseText(codigoController);
+            var raiz = await arbol.GetRootAsync();
+
+            var claseController = raiz.DescendantNodes()
+                .OfType<ClassDeclarationSyntax>()
+                .FirstOrDefault(c => c.Identifier.Text.Contains("Controller"));
+
+            if (claseController == null)
+                return metodos;
+
+            var metodosController = claseController.DescendantNodes().OfType<MethodDeclarationSyntax>();
+
+            foreach (var metodo in metodosController)
+            {
+                var atributos = metodo.AttributeLists
+                    .SelectMany(al => al.Attributes)
+                    .ToList();
+
+                var httpMethodAttr = atributos.FirstOrDefault(a =>
+                    a.Name.ToString().StartsWith("Http"));
+
+                if (httpMethodAttr == null)
+                    continue;
+
+                var httpMethod = ExtraerHttpMethod(httpMethodAttr.Name.ToString());
+                var route = ExtraerRoute(httpMethodAttr);
+                var nombreMetodo = metodo.Identifier.Text;
+                var tipoRetorno = ExtraerTipoRetorno(metodo.ReturnType.ToString());
+                var parametros = ExtraerParametros(metodo.ParameterList);
+
+                metodos.Add(new MetodoControllerDto
+                {
+                    NombreMetodo = nombreMetodo,
+                    HttpMethod = httpMethod,
+                    Route = route,
+                    TipoRetorno = tipoRetorno,
+                    Parametros = parametros
+                });
+            }
+
+            return metodos;
+        }
+
+        private string ExtraerHttpMethod(string atributoNombre)
+        {
+            if (atributoNombre.Contains("Get")) return "GET";
+            if (atributoNombre.Contains("Post")) return "POST";
+            if (atributoNombre.Contains("Put")) return "PUT";
+            if (atributoNombre.Contains("Delete")) return "DELETE";
+            if (atributoNombre.Contains("Patch")) return "PATCH";
+            return "GET";
+        }
+
+        private string ExtraerRoute(AttributeSyntax atributo)
+        {
+            if (atributo.ArgumentList == null || !atributo.ArgumentList.Arguments.Any())
+                return "";
+
+            var primerArgumento = atributo.ArgumentList.Arguments.First();
+            return primerArgumento.Expression.ToString().Trim('"');
+        }
+
+        private string ExtraerTipoRetorno(string tipoRetornoCompleto)
+        {
+            if (tipoRetornoCompleto.Contains("Task<") || tipoRetornoCompleto.Contains("ActionResult<"))
+            {
+                var inicio = tipoRetornoCompleto.IndexOf('<') + 1;
+                var fin = tipoRetornoCompleto.LastIndexOf('>');
+                if (inicio > 0 && fin > inicio)
+                {
+                    return tipoRetornoCompleto.Substring(inicio, fin - inicio).Trim();
+                }
+            }
+            return tipoRetornoCompleto;
+        }
+
+        private List<ParametroMetodoDto> ExtraerParametros(ParameterListSyntax parameterList)
+        {
+            var parametros = new List<ParametroMetodoDto>();
+
+            foreach (var param in parameterList.Parameters)
+            {
+                var esFromBody = param.AttributeLists
+                    .SelectMany(al => al.Attributes)
+                    .Any(a => a.Name.ToString() == "FromBody");
+
+                var esFromRoute = param.AttributeLists
+                    .SelectMany(al => al.Attributes)
+                    .Any(a => a.Name.ToString() == "FromRoute");
+
+                parametros.Add(new ParametroMetodoDto
+                {
+                    Nombre = param.Identifier.Text,
+                    Tipo = param.Type?.ToString() ?? "object",
+                    EsFromBody = esFromBody,
+                    EsFromRoute = esFromRoute || (!esFromBody && param.Type?.ToString() != "int" && param.Type?.ToString() != "string")
+                });
+            }
+
+            return parametros;
         }
 
         public async Task<string> GenerarInterfazClienteAsync(
             string nombreServicio, 
-            List<string> metodos)
+            List<MetodoControllerDto> metodos)
         {
             var sb = new StringBuilder();
-            var entidad = nombreServicio.TrimEnd('s'); // Users -> User
 
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using System.Threading.Tasks;");
@@ -63,24 +178,8 @@ namespace RefactorizacionService.Services
 
             foreach (var metodo in metodos)
             {
-                switch (metodo)
-                {
-                    case "GetAll":
-                        sb.AppendLine($"        Task<List<{entidad}Dto>> GetAllAsync();");
-                        break;
-                    case "GetById":
-                        sb.AppendLine($"        Task<{entidad}Dto> GetByIdAsync(int id);");
-                        break;
-                    case "Create":
-                        sb.AppendLine($"        Task<{entidad}Dto> CreateAsync({entidad}Dto entity);");
-                        break;
-                    case "Update":
-                        sb.AppendLine($"        Task<{entidad}Dto> UpdateAsync(int id, {entidad}Dto entity);");
-                        break;
-                    case "Delete":
-                        sb.AppendLine($"        Task<bool> DeleteAsync(int id);");
-                        break;
-                }
+                var parametrosStr = string.Join(", ", metodo.Parametros.Select(p => $"{p.Tipo} {p.Nombre}"));
+                sb.AppendLine($"        Task<{metodo.TipoRetorno}> {metodo.NombreMetodo}Async({parametrosStr});");
             }
 
             sb.AppendLine("    }");
@@ -92,10 +191,9 @@ namespace RefactorizacionService.Services
         public async Task<string> GenerarImplementacionClienteNativoAsync(
             string nombreServicio, 
             string urlBase, 
-            List<string> metodos)
+            List<MetodoControllerDto> metodos)
         {
             var sb = new StringBuilder();
-            var entidad = nombreServicio.TrimEnd('s'); // Users -> User
 
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
@@ -119,57 +217,57 @@ namespace RefactorizacionService.Services
 
             foreach (var metodo in metodos)
             {
-                switch (metodo)
+                var parametrosStr = string.Join(", ", metodo.Parametros.Select(p => $"{p.Tipo} {p.Nombre}"));
+                
+                sb.AppendLine($"        public async Task<{metodo.TipoRetorno}> {metodo.NombreMetodo}Async({parametrosStr})");
+                sb.AppendLine("        {");
+
+                var routeConParametros = ConstruirRutaConParametros(metodo);
+                
+                switch (metodo.HttpMethod.ToUpper())
                 {
-                    case "GetAll":
-                        sb.AppendLine($"        public async Task<List<{entidad}Dto>> GetAllAsync()");
-                        sb.AppendLine("        {");
-                        sb.AppendLine($"            var response = await _httpClient.GetAsync($\"{{_baseUrl}}/api/{nombreServicio.ToLower()}\");");
+                    case "GET":
+                        sb.AppendLine($"            var response = await _httpClient.GetAsync($\"{{_baseUrl}}{routeConParametros}\");");
                         sb.AppendLine("            response.EnsureSuccessStatusCode();");
-                        sb.AppendLine($"            return await response.Content.ReadFromJsonAsync<List<{entidad}Dto>>();");
-                        sb.AppendLine("        }");
-                        sb.AppendLine();
+                        sb.AppendLine($"            return await response.Content.ReadFromJsonAsync<{metodo.TipoRetorno}>();");
                         break;
 
-                    case "GetById":
-                        sb.AppendLine($"        public async Task<{entidad}Dto> GetByIdAsync(int id)");
-                        sb.AppendLine("        {");
-                        sb.AppendLine($"            var response = await _httpClient.GetAsync($\"{{_baseUrl}}/api/{nombreServicio.ToLower()}/{{id}}\");");
+                    case "POST":
+                        var bodyParam = metodo.Parametros.FirstOrDefault(p => p.EsFromBody);
+                        if (bodyParam != null)
+                        {
+                            sb.AppendLine($"            var response = await _httpClient.PostAsJsonAsync($\"{{_baseUrl}}{routeConParametros}\", {bodyParam.Nombre});");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"            var response = await _httpClient.PostAsync($\"{{_baseUrl}}{routeConParametros}\", null);");
+                        }
                         sb.AppendLine("            response.EnsureSuccessStatusCode();");
-                        sb.AppendLine($"            return await response.Content.ReadFromJsonAsync<{entidad}Dto>();");
-                        sb.AppendLine("        }");
-                        sb.AppendLine();
+                        sb.AppendLine($"            return await response.Content.ReadFromJsonAsync<{metodo.TipoRetorno}>();");
                         break;
 
-                    case "Create":
-                        sb.AppendLine($"        public async Task<{entidad}Dto> CreateAsync({entidad}Dto entity)");
-                        sb.AppendLine("        {");
-                        sb.AppendLine($"            var response = await _httpClient.PostAsJsonAsync($\"{{_baseUrl}}/api/{nombreServicio.ToLower()}\", entity);");
+                    case "PUT":
+                        var bodyParamPut = metodo.Parametros.FirstOrDefault(p => p.EsFromBody);
+                        if (bodyParamPut != null)
+                        {
+                            sb.AppendLine($"            var response = await _httpClient.PutAsJsonAsync($\"{{_baseUrl}}{routeConParametros}\", {bodyParamPut.Nombre});");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"            var response = await _httpClient.PutAsync($\"{{_baseUrl}}{routeConParametros}\", null);");
+                        }
                         sb.AppendLine("            response.EnsureSuccessStatusCode();");
-                        sb.AppendLine($"            return await response.Content.ReadFromJsonAsync<{entidad}Dto>();");
-                        sb.AppendLine("        }");
-                        sb.AppendLine();
+                        sb.AppendLine($"            return await response.Content.ReadFromJsonAsync<{metodo.TipoRetorno}>();");
                         break;
 
-                    case "Update":
-                        sb.AppendLine($"        public async Task<{entidad}Dto> UpdateAsync(int id, {entidad}Dto entity)");
-                        sb.AppendLine("        {");
-                        sb.AppendLine($"            var response = await _httpClient.PutAsJsonAsync($\"{{_baseUrl}}/api/{nombreServicio.ToLower()}/{{id}}\", entity);");
-                        sb.AppendLine("            response.EnsureSuccessStatusCode();");
-                        sb.AppendLine($"            return await response.Content.ReadFromJsonAsync<{entidad}Dto>();");
-                        sb.AppendLine("        }");
-                        sb.AppendLine();
-                        break;
-
-                    case "Delete":
-                        sb.AppendLine($"        public async Task<bool> DeleteAsync(int id)");
-                        sb.AppendLine("        {");
-                        sb.AppendLine($"            var response = await _httpClient.DeleteAsync($\"{{_baseUrl}}/api/{nombreServicio.ToLower()}/{{id}}\");");
+                    case "DELETE":
+                        sb.AppendLine($"            var response = await _httpClient.DeleteAsync($\"{{_baseUrl}}{routeConParametros}\");");
                         sb.AppendLine("            return response.IsSuccessStatusCode;");
-                        sb.AppendLine("        }");
-                        sb.AppendLine();
                         break;
                 }
+
+                sb.AppendLine("        }");
+                sb.AppendLine();
             }
 
             sb.AppendLine("    }");
@@ -178,12 +276,27 @@ namespace RefactorizacionService.Services
             return await Task.FromResult(sb.ToString());
         }
 
+        private string ConstruirRutaConParametros(MetodoControllerDto metodo)
+        {
+            var ruta = metodo.Route;
+            
+            foreach (var param in metodo.Parametros.Where(p => !p.EsFromBody))
+            {
+                if (ruta.Contains($"{{{param.Nombre}}}"))
+                {
+                    ruta = ruta.Replace($"{{{param.Nombre}}}", $"{{{param.Nombre}}}");
+                }
+            }
+
+            return ruta;
+        }
+
         public async Task<string> GenerarImplementacionClienteRefitAsync(
             string nombreServicio, 
-            string urlBase)
+            string urlBase,
+            List<MetodoControllerDto> metodos)
         {
             var sb = new StringBuilder();
-            var entidad = nombreServicio.TrimEnd('s');
 
             sb.AppendLine("using Refit;");
             sb.AppendLine("using System.Collections.Generic;");
@@ -193,24 +306,67 @@ namespace RefactorizacionService.Services
             sb.AppendLine("{");
             sb.AppendLine($"    public interface I{nombreServicio}Client");
             sb.AppendLine("    {");
-            sb.AppendLine($"        [Get(\"/api/{nombreServicio.ToLower()}\")]");
-            sb.AppendLine($"        Task<List<{entidad}Dto>> GetAllAsync();");
-            sb.AppendLine();
-            sb.AppendLine($"        [Get(\"/api/{nombreServicio.ToLower()}/{{id}}\")]");
-            sb.AppendLine($"        Task<{entidad}Dto> GetByIdAsync(int id);");
-            sb.AppendLine();
-            sb.AppendLine($"        [Post(\"/api/{nombreServicio.ToLower()}\")]");
-            sb.AppendLine($"        Task<{entidad}Dto> CreateAsync([Body] {entidad}Dto entity);");
-            sb.AppendLine();
-            sb.AppendLine($"        [Put(\"/api/{nombreServicio.ToLower()}/{{id}}\")]");
-            sb.AppendLine($"        Task<{entidad}Dto> UpdateAsync(int id, [Body] {entidad}Dto entity);");
-            sb.AppendLine();
-            sb.AppendLine($"        [Delete(\"/api/{nombreServicio.ToLower()}/{{id}}\")]");
-            sb.AppendLine($"        Task<bool> DeleteAsync(int id);");
+
+            foreach (var metodo in metodos)
+            {
+                var httpMethodAttr = metodo.HttpMethod switch
+                {
+                    "GET" => "Get",
+                    "POST" => "Post",
+                    "PUT" => "Put",
+                    "DELETE" => "Delete",
+                    _ => "Get"
+                };
+
+                sb.AppendLine($"        [{httpMethodAttr}(\"{metodo.Route}\")]");
+                
+                var parametrosStr = string.Join(", ", metodo.Parametros.Select(p =>
+                {
+                    if (p.EsFromBody)
+                        return $"[Body] {p.Tipo} {p.Nombre}";
+                    return $"{p.Tipo} {p.Nombre}";
+                }));
+
+                sb.AppendLine($"        Task<{metodo.TipoRetorno}> {metodo.NombreMetodo}Async({parametrosStr});");
+                sb.AppendLine();
+            }
+
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
             return await Task.FromResult(sb.ToString());
         }
+
+        public Task<string> GenerarInterfazClienteAsync(string nombreServicio, List<string> metodos)
+        {
+            throw new NotImplementedException("Usar sobrecarga con List<MetodoControllerDto>");
+        }
+
+        public Task<string> GenerarImplementacionClienteNativoAsync(string nombreServicio, string urlBase, List<string> metodos)
+        {
+            throw new NotImplementedException("Usar sobrecarga con List<MetodoControllerDto>");
+        }
+
+        public Task<string> GenerarImplementacionClienteRefitAsync(string nombreServicio, string urlBase)
+        {
+            throw new NotImplementedException("Usar sobrecarga con List<MetodoControllerDto>");
+        }
+    }
+
+    public class MetodoControllerDto
+    {
+        public string NombreMetodo { get; set; }
+        public string HttpMethod { get; set; }
+        public string Route { get; set; }
+        public string TipoRetorno { get; set; }
+        public List<ParametroMetodoDto> Parametros { get; set; } = new();
+    }
+
+    public class ParametroMetodoDto
+    {
+        public string Nombre { get; set; }
+        public string Tipo { get; set; }
+        public bool EsFromBody { get; set; }
+        public bool EsFromRoute { get; set; }
     }
 }
