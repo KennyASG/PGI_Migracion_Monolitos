@@ -10,29 +10,33 @@ namespace RefactorizacionService.Services
     {
         private readonly IConfiguration _configuration;
         private readonly IServiciosMigradosService _serviciosMigradosService;
+        private readonly ILogger<AnalizadorDependenciasService> _logger;
 
         public AnalizadorDependenciasService(
             IConfiguration configuration,
-            IServiciosMigradosService serviciosMigradosService)
+            IServiciosMigradosService serviciosMigradosService,
+            ILogger<AnalizadorDependenciasService> logger)
         {
             _configuration = configuration;
             _serviciosMigradosService = serviciosMigradosService;
+            _logger = logger;
         }
 
         public async Task<AnalizarRefactorizacionResponseDto> AnalizarDependenciasAsync(
             string nombreProyecto, 
             string moduloARefactorizar)
         {
-            var monolithosFolder = _configuration["Paths:MonolithosFolder"];
-            var rutaProyecto = Path.Combine(monolithosFolder, nombreProyecto);
+            // Buscar en la carpeta local del RefactorizacionService
+            var localMonolithosFolder = Path.Combine(Directory.GetCurrentDirectory(), "Monolithos");
+            var rutaProyecto = Path.Combine(localMonolithosFolder, nombreProyecto,nombreProyecto);
 
             if (!Directory.Exists(rutaProyecto))
-                throw new DirectoryNotFoundException($"Proyecto {nombreProyecto} no encontrado en {rutaProyecto}");
+                throw new DirectoryNotFoundException($"Proyecto {nombreProyecto} no encontrado en {localMonolithosFolder}. Por favor descomprímalo manualmente.");
 
             var rutaModulo = Path.Combine(rutaProyecto, "Modules", moduloARefactorizar);
             
             if (!Directory.Exists(rutaModulo))
-                throw new DirectoryNotFoundException($"Módulo {moduloARefactorizar} no encontrado");
+                throw new DirectoryNotFoundException($"Módulo {moduloARefactorizar} no encontrado en {rutaProyecto}");
 
             var serviciosMigrados = await _serviciosMigradosService.ObtenerServiciosMigradosAsync(nombreProyecto);
             var nombreServiciosMigrados = serviciosMigrados.Select(s => $"{s.NombreModulo}Service").ToList();

@@ -17,4 +17,20 @@
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2"/>
     </ItemGroup>
 
+    <ItemGroup>
+      <Compile Remove="Monolithos\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Remove="Monolithos\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Remove="Monolithos\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="Monolithos\**" />
+    </ItemGroup>
+
 </Project>

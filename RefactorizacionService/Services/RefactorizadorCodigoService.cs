@@ -10,24 +10,32 @@ namespace RefactorizacionService.Services
     {
         private readonly IConfiguration _configuration;
         private readonly IRefactorizacionHistorialService _historialService;
+        private readonly ILogger<RefactorizadorCodigoService> _logger;
 
         public RefactorizadorCodigoService(
             IConfiguration configuration,
-            IRefactorizacionHistorialService historialService)
+            IRefactorizacionHistorialService historialService,
+            ILogger<RefactorizadorCodigoService> logger)
         {
             _configuration = configuration;
             _historialService = historialService;
+            _logger = logger;
         }
 
         public async Task<AplicarRefactorizacionResponseDto> RefactorizarModuloAsync(
             AplicarRefactorizacionRequestDto request)
         {
-            var monolithosFolder = _configuration["Paths:MonolithosFolder"];
-            var rutaProyecto = Path.Combine(monolithosFolder, request.NombreProyecto);
+            // Buscar en la carpeta local del RefactorizacionService
+            var localMonolithosFolder = Path.Combine(Directory.GetCurrentDirectory(), "Monolithos");
+            var rutaProyecto = Path.Combine(localMonolithosFolder, request.NombreProyecto, request.NombreProyecto);
+
+            if (!Directory.Exists(rutaProyecto))
+                throw new DirectoryNotFoundException($"Proyecto {request.NombreProyecto} no encontrado en {localMonolithosFolder}. Por favor descomprímalo manualmente.");
+
             var rutaModulo = Path.Combine(rutaProyecto, "Modules", request.ModuloARefactorizar);
 
             if (!Directory.Exists(rutaModulo))
-                throw new DirectoryNotFoundException($"Módulo {request.ModuloARefactorizar} no encontrado");
+                throw new DirectoryNotFoundException($"Módulo {request.ModuloARefactorizar} no encontrado en {rutaProyecto}");
 
             var historial = await _historialService.CrearHistorialAsync(
                 request.NombreProyecto,
